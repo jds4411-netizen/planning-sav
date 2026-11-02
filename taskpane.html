@@ -6,6 +6,7 @@
 <title>Planning SAV</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<script>(function(){var t="light";try{t=localStorage.getItem("sav_theme")||"light"}catch(e){}if(t!=="auto")document.documentElement.setAttribute("data-theme",t)})();</script>
 <style>
 /* Panneau Excel : barre noire, onglets, contenu béton. Grille semaine si le panneau est large, liste par jour s'il est étroit. */
 :root{
@@ -88,10 +89,10 @@ textarea{width:100%;resize:vertical;min-height:64px}
 .gridwrap{overflow-x:auto;border:1px solid var(--line);border-radius:4px;background:var(--surface)}
 table.wk{border-collapse:separate;border-spacing:0;width:100%;min-width:760px;table-layout:fixed}
 table.wk th,table.wk td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);vertical-align:top;padding:5px}
-table.wk thead th{background:var(--ink);color:var(--bg);text-align:left;font-family:var(--f-head);font-size:15px;text-transform:uppercase;letter-spacing:.03em}
+table.wk thead th{background:var(--bar);color:var(--bar-ink);text-align:left;font-family:var(--f-head);font-size:15px;text-transform:uppercase;letter-spacing:.03em}
 table.wk thead th small{display:block;font-family:var(--f-mono);font-size:10px;font-weight:400;opacity:.8;text-transform:none}
 table.wk thead th.today{background:var(--signal);color:var(--signal-ink)}
-table.wk thead th.fer{background:repeating-linear-gradient(135deg,var(--ink) 0 6px,#555 6px 9px)}
+table.wk thead th.fer{background:repeating-linear-gradient(135deg,var(--bar) 0 6px,#555 6px 9px)}
 table.wk th.who{width:96px;background:var(--surface-2);color:var(--ink);text-align:left}
 table.wk tbody th.who{font-family:var(--f-head);font-size:18px}
 table.wk tbody th.who small{display:block;font-family:var(--f-body);font-size:11px;font-weight:400;color:var(--ink-2);text-transform:none}
@@ -131,7 +132,7 @@ td.cell.fer{background:repeating-linear-gradient(135deg,transparent 0 8px,color-
 
 /* Mois */
 table.mo{border-collapse:collapse;width:100%;min-width:620px;table-layout:fixed}
-table.mo th{font-family:var(--f-head);text-transform:uppercase;font-size:13px;text-align:left;padding:4px;background:var(--ink);color:var(--bg)}
+table.mo th{font-family:var(--f-head);text-transform:uppercase;font-size:13px;text-align:left;padding:4px;background:var(--bar);color:var(--bar-ink)}
 table.mo td{border:1px solid var(--line);vertical-align:top;height:96px;padding:3px;background:var(--surface)}
 table.mo td.out{background:transparent;opacity:.5}
 table.mo td.fer{background:repeating-linear-gradient(135deg,var(--surface) 0 8px,var(--surface-2) 8px 12px)}
@@ -216,6 +217,8 @@ pre.route{white-space:pre-wrap;font-family:var(--f-mono);font-size:12px;backgrou
 <div class="head"><div class="bar">
   <b>Planning SAV</b>
   <span class="sync demo" id="sync">Chargement…</span>
+  <button class="ib" id="fullBtn" hidden title="Ouvrir le planning dans une grande fenêtre">Plein écran</button>
+  <button class="ib" id="closeFullBtn" hidden title="Fermer la fenêtre plein écran">Fermer</button>
   <button class="ib" id="undoBtn" disabled title="Annuler la dernière action (Ctrl+Z)">Annuler</button>
   <button class="ib" id="reloadBtn" title="Recharger depuis Excel">Actualiser</button>
   <button class="ib" id="setBtn" title="Réglages">Réglages</button>
@@ -425,7 +428,7 @@ function demoData() {
 
 /* ---------- État ---------- */
 const S = {
-  store: null, inOffice: false, data: null, ix: null, view: ls.get("sav_view", "week"), week: monOf(today()), month: null,
+  store: null, inOffice: false, live: false, mode: "demo", fullOpen: false, data: null, ix: null, view: ls.get("sav_view", "week"), week: monOf(today()), month: null,
   undo: [], user: ls.get("sav_user", ""), cantons: ls.get("sav_cantons", "NE VD GE FR").split(" ").filter(Boolean),
   zone: "", lastWrite: 0, lastLoad: 0, wide: true, edit: null, chFilter: "future", chQ: "", demFilter: "open", statYear: new Date().getFullYear(), moOuv: "", moCh: ""
 };
@@ -497,7 +500,7 @@ function applyLocal(ops) {
   buildIndex();
 }
 function setSync(st, txt) { const e = $("#sync"); e.className = "sync " + st; e.textContent = txt; }
-const idleSync = () => S.inOffice ? setSync("", "Enregistré dans Excel") : setSync("demo", "Démo · données d'exemple");
+const idleSync = () => S.live ? setSync("", "Enregistré dans Excel") : setSync("demo", "Démo · données d'exemple");
 async function run(ops, label, undoable = true) {
   ops = ops.filter(Boolean); if (!ops.length) return true;
   const inv = inverseOf(ops);
@@ -537,6 +540,11 @@ async function reload(silent) {
 /* ---------- Rendu général ---------- */
 function render() {
   if (!S.data) return;
+  if (S.fullOpen) {
+    $("#main").innerHTML = `<div class="center"><h2>Planning ouvert en plein écran</h2><p>Travaillez dans la grande fenêtre. <b>Gardez ce panneau ouvert</b> : c'est lui qui enregistre dans le classeur.</p><div class="row"><button class="btn" id="fullClose2">Fermer le plein écran</button></div></div>`;
+    $("#fullClose2").onclick = () => { try { Bridge.dlg && Bridge.dlg.close(); } catch (e) { } onFullClosed(); };
+    return;
+  }
   $("#undoBtn").disabled = !S.undo.length;
   $("#undoBtn").title = S.undo.length ? "Annuler : " + S.undo[S.undo.length - 1].label : "Rien à annuler";
   const nd = S.data.dem.filter(d => d.statut === "En attente").length;
@@ -546,7 +554,7 @@ function render() {
   const v = { week: renderWeek, month: renderMonth, dem: renderDem, ch: renderCh, res: renderRes, stats: renderStats }[S.view] || renderWeek;
   const keep = window.scrollY; v(); window.scrollTo(0, keep);
 }
-const demoBanner = () => S.inOffice ? "" : `<div class="demobar"><b>Aperçu avec des données d'exemple.</b> Dans Excel, le complément lit et écrit directement dans les tableaux du classeur Planning_SAV_3.0.</div>`;
+const demoBanner = () => S.live ? "" : `<div class="demobar"><b>Aperçu avec des données d'exemple.</b> Dans Excel, le complément lit et écrit directement dans les tableaux du classeur Planning_SAV_3.0.</div>`;
 
 function cardHTML(i) {
   const c = chOf(i.chantier), { no, name } = splitKey(i.chantier), w = conflicts(i);
@@ -1216,11 +1224,16 @@ function openSettings(first) {
   openModal(first ? "Bienvenue dans Planning SAV" : "Réglages", `${first ? `<p style="margin:0">Indiquez vos initiales : elles sont enregistrées sur chaque intervention que vous planifiez.</p>` : ""}
    <label class="field"><span>Vos initiales</span><input type="text" id="sUser" value="${html(S.user)}" maxlength="6" placeholder="JD"></label>
    <div class="field"><span>Jours fériés à afficher</span><div class="chips" id="sCant">${CANTONS.map(c => `<button class="chip" data-c="${c}" aria-pressed="${S.cantons.includes(c)}">${c}</button>`).join("")}</div></div>
+   <div class="field"><span>Affichage</span><div class="chips" id="sTheme">${[["light", "Clair"], ["dark", "Sombre"], ["auto", "Comme Windows"]].map(([v, l]) => `<button class="chip" data-th="${v}" aria-pressed="${ls.get("sav_theme", "light") === v}">${l}</button>`).join("")}</div></div>
    <div class="row end"><button class="btn" id="sOk">Enregistrer</button></div>`);
+  $("#sTheme").onclick = e => { const b = e.target.closest("[data-th]"); if (!b) return; $("#sTheme").querySelectorAll("[data-th]").forEach(x => x.setAttribute("aria-pressed", x === b)); };
   $("#sCant").onclick = e => { const b = e.target.closest("[data-c]"); if (b) b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); };
   $("#sOk").onclick = () => {
     S.user = $("#sUser").value.trim().toUpperCase(); ls.set("sav_user", S.user);
     S.cantons = [...$("#sCant").querySelectorAll("[aria-pressed=true]")].map(b => b.dataset.c); ls.set("sav_cantons", S.cantons.join(" "));
+    const th = $("#sTheme [aria-pressed=true]")?.dataset.th || "light"; ls.set("sav_theme", th);
+    if (th === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", th);
+    if (S.mode === "full") tellParent({ t: "prefs", prefs: prefsNow() });
     closeModal(); render();
   };
 }
@@ -1263,13 +1276,96 @@ document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !$("#sheet").hidden && $("#eSave")) { e.preventDefault(); saveEditor(); }
 });
 new ResizeObserver(() => { const w = $("#main").clientWidth >= 700; if (w !== S.wide && S.data) render(); }).observe($("#main"));
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.inOffice && Date.now() - S.lastLoad > 60000) reload(true); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.live && Date.now() - S.lastLoad > 60000) reload(true); });
+
+/* ---------- Plein écran : grande fenêtre reliée au panneau ----------
+   La fenêtre n'a pas accès à Excel : elle envoie ses lectures et écritures au panneau,
+   qui les exécute dans le classeur puis répond. Messages découpés en morceaux. */
+const CHUNK = 16000;
+const Bridge = { dlg: null, bufs: {} };
+function sendChunks(send, obj) {
+  const s = JSON.stringify(obj), id = Math.random().toString(36).slice(2), n = Math.max(1, Math.ceil(s.length / CHUNK));
+  for (let k = 0; k < n; k++) send(JSON.stringify({ k: "part", id, i: k, n, d: s.slice(k * CHUNK, (k + 1) * CHUNK) }));
+}
+function recvChunk(raw, cb) {
+  let m; try { m = JSON.parse(raw); } catch (e) { return; }
+  if (!m || m.k !== "part") return;
+  const b = Bridge.bufs[m.id] || (Bridge.bufs[m.id] = { n: m.n, p: [], got: 0 });
+  if (b.p[m.i] === undefined) { b.p[m.i] = m.d; b.got++; }
+  if (b.got === b.n) { delete Bridge.bufs[m.id]; cb(JSON.parse(b.p.join(""))); }
+}
+const toDlg = obj => { if (Bridge.dlg) try { sendChunks(x => Bridge.dlg.messageChild(x), obj); } catch (e) { console.warn(e); } };
+const prefsNow = () => ({ user: S.user, cantons: S.cantons, theme: ls.get("sav_theme", "light") });
+function applyPrefs(p, save) {
+  if (!p) return;
+  if (typeof p.user === "string") S.user = p.user;
+  if (Array.isArray(p.cantons)) S.cantons = p.cantons;
+  if (p.theme) { if (p.theme === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", p.theme); }
+  if (save) { ls.set("sav_user", S.user); ls.set("sav_cantons", S.cantons.join(" ")); if (p.theme) ls.set("sav_theme", p.theme); }
+}
+function openFull() {
+  if (Bridge.dlg) return;
+  Office.context.ui.displayDialogAsync(new URL("taskpane.html?mode=full", location.href).href, { height: 100, width: 100, promptBeforeOpen: false }, res => {
+    if (res.status !== Office.AsyncResultStatus.Succeeded) {
+      openModal("Plein écran impossible", `<p>${html(res.error?.message || "La fenêtre n'a pas pu s'ouvrir.")}</p><p class="muted">Autorisez les fenêtres pop-up pour ce site dans le navigateur, puis réessayez.</p>`); return;
+    }
+    Bridge.dlg = res.value; S.fullOpen = true; render();
+    Bridge.dlg.addEventHandler(Office.EventType.DialogMessageReceived, a => recvChunk(a.message, onDialogMsg));
+    Bridge.dlg.addEventHandler(Office.EventType.DialogEventReceived, () => onFullClosed());
+  });
+}
+function onFullClosed() { Bridge.dlg = null; S.fullOpen = false; reload(true); }
+async function onDialogMsg(m) {
+  if (m.t === "load") {
+    try { const data = await OfficeStore.loadAll(); toDlg({ t: "res", rid: m.rid, ok: true, data, prefs: prefsNow() }); }
+    catch (e) { toDlg({ t: "res", rid: m.rid, ok: false, err: e.message, missing: e.missing }); }
+  } else if (m.t === "apply") {
+    try {
+      S.lastWrite = Date.now(); await OfficeStore.apply(m.ops); S.lastWrite = Date.now();
+      toDlg({ t: "res", rid: m.rid, ok: true });
+      clearTimeout(onDialogMsg.t); onDialogMsg.t = setTimeout(() => reload(true), 1500);
+    } catch (e) { toDlg({ t: "res", rid: m.rid, ok: false, err: e.message }); }
+  } else if (m.t === "prefs") applyPrefs(m.prefs, true);
+  else if (m.t === "close") { try { Bridge.dlg && Bridge.dlg.close(); } catch (e) { } onFullClosed(); }
+}
+const BridgeStore = {
+  pending: {}, n: 0,
+  init() {
+    return new Promise(res => Office.context.ui.addHandlerAsync(Office.EventType.DialogParentMessageReceived, a => recvChunk(a.message, m => {
+      if (m.t === "res") { const p = this.pending[m.rid]; if (!p) return; delete this.pending[m.rid]; clearTimeout(p.to); if (m.ok) p.res(m); else { const e = new Error(m.err); e.missing = m.missing; p.rej(e); } }
+      else if (m.t === "changed") { if (Date.now() - S.lastWrite > 2500) reload(true); }
+    }), () => res()));
+  },
+  call(msg) {
+    return new Promise((res, rej) => {
+      const rid = "q" + (++this.n);
+      const to = setTimeout(() => { if (this.pending[rid]) { delete this.pending[rid]; rej(new Error("Le panneau Planning SAV dans Excel ne répond pas. Vérifiez qu'il est toujours ouvert, puis réessayez.")); } }, 45000);
+      this.pending[rid] = { res, rej, to };
+      sendChunks(x => Office.context.ui.messageParent(x), { ...msg, rid });
+    });
+  },
+  async loadAll() { const r = await this.call({ t: "load" }); applyPrefs(r.prefs, false); return r.data; },
+  async apply(ops) { await this.call({ t: "apply", ops }); },
+  watch() { }
+};
+const tellParent = obj => { try { sendChunks(x => Office.context.ui.messageParent(x), obj); } catch (e) { } };
 
 /* ---------- Démarrage ---------- */
 let started = false;
-async function start(inOffice) {
+const FULL = new URLSearchParams(location.search).get("mode") === "full";
+async function start(mode) {
   if (started) return; started = true;
-  S.inOffice = inOffice; S.store = inOffice ? OfficeStore : MemStore;
+  S.mode = mode; S.inOffice = mode === "panel"; S.live = mode !== "demo";
+  S.store = mode === "panel" ? OfficeStore : mode === "full" ? BridgeStore : MemStore;
+  const inOffice = S.inOffice;
+  if (mode === "full") {
+    await BridgeStore.init();
+    $("#closeFullBtn").hidden = false; $("#closeFullBtn").onclick = () => tellParent({ t: "close" });
+    await reload();
+    if (!S.user) openSettings(true);
+    return;
+  }
+  if (inOffice && Office.context.requirements.isSetSupported("DialogApi", "1.2")) { $("#fullBtn").hidden = false; $("#fullBtn").onclick = openFull; }
   if (inOffice && !Office.context.requirements.isSetSupported("ExcelApi", "1.7")) {
     $("#main").innerHTML = `<div class="center"><h2>Version d'Excel trop ancienne</h2><p>Ce complément demande Excel 2019 ou plus récent, Microsoft 365 ou Excel en ligne.</p></div>`; return;
   }
@@ -1277,18 +1373,18 @@ async function start(inOffice) {
   if (inOffice) {
     S.store.watch(src => {
       if (Date.now() - S.lastWrite < 2500) return;
-      clearTimeout(start.t); start.t = setTimeout(() => reload(true), 1200);
+      clearTimeout(start.t); start.t = setTimeout(() => { reload(true); toDlg({ t: "changed" }); }, 1200);
     });
-    setInterval(() => { if (document.visibilityState === "visible" && Date.now() - S.lastWrite > 5000) reload(true); }, 120000);
+    setInterval(() => { if ((document.visibilityState === "visible" || S.fullOpen) && Date.now() - S.lastWrite > 5000) { reload(true); toDlg({ t: "changed" }); } }, 120000);
   }
   if (!S.user && inOffice) openSettings(true);
 }
 if (typeof Office !== "undefined" && Office.onReady) {
-  Office.onReady(info => start(!!info && info.host === Office.HostType.Excel));
+  Office.onReady(info => start(FULL ? "full" : (info && info.host === Office.HostType.Excel ? "panel" : "demo")));
   setTimeout(() => { if (started) return;
     $("#main").innerHTML = `<div class="center"><h2>Excel ne répond pas</h2><p>Le complément n'a pas pu se connecter au classeur.</p><div class="row"><button class="btn" onclick="location.reload()">Réessayer</button><button class="btn ghost" id="goDemo">Voir l'aperçu de démonstration</button></div></div>`;
-    $("#goDemo").onclick = () => start(false); }, 10000);
-} else start(false);
+    $("#goDemo").onclick = () => start("demo"); }, 10000);
+} else start("demo");
 </script>
 </body>
 </html>
