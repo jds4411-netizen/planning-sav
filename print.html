@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Impression – Planning SAV</title>
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<style>
+body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:#fff;color:#111}
+.tb{position:sticky;top:0;background:#151615;color:#fff;padding:8px 12px;display:flex;gap:8px;align-items:center;z-index:2}
+.tb button{background:#F2B200;color:#151615;border:0;border-radius:4px;padding:6px 12px;font-weight:600;cursor:pointer}
+.tb span{font-size:13px;opacity:.8}
+#doc{padding:0 12px}
+@media print{.tb{display:none}#doc{padding:0}}
+</style>
+</head>
+<body>
+<div class="tb"><button id="printBtn">Imprimer / PDF</button><button id="icsBtn" hidden>Fichier calendrier (.ics)</button><span id="st">Chargement du document…</span></div>
+<div id="doc"></div>
+<script>
+// Fenêtre ouverte par le complément : reçoit le document par morceaux, puis l'affiche.
+var parts = [], total = 0;
+function show(p) {
+  document.title = p.title;
+  document.getElementById("doc").innerHTML = p.html;
+  document.getElementById("st").textContent = "";
+  if (p.ics) {
+    var b = document.getElementById("icsBtn"); b.hidden = false;
+    b.onclick = function () { var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([p.ics], { type: "text/calendar" })); a.download = p.icsName || "planning.ics"; document.body.appendChild(a); a.click(); };
+  }
+}
+document.getElementById("printBtn").onclick = function () { window.print(); };
+Office.onReady(function () {
+  Office.context.ui.addHandlerAsync(Office.EventType.DialogParentMessageReceived, function (arg) {
+    var m = JSON.parse(arg.message);
+    if (m.i === 0) { parts = []; total = m.n; }
+    parts[m.i] = m.d;
+    var got = 0; for (var k = 0; k < total; k++) if (parts[k] !== undefined) got++;
+    if (got === total) show(JSON.parse(parts.join("")));
+  }, function () { Office.context.ui.messageParent("ready"); });
+});
+</script>
+</body>
+</html>
